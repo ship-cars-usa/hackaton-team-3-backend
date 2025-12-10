@@ -1,0 +1,12 @@
+asgiref==3.11.0
+Django==5.2.9
+django-extensions==4.1
+django-filter==25.2
+djangorestframework==3.16.1
+Markdown==3.10
+sqlparse==0.5.4
+typing_extensions==4.15.0
+pydantic-ai==1.29.0
+google-generativeai
+anthropic
+pydantic>=2.11.2,<3.0.0
