@@ -1,5 +1,6 @@
 import logging
 import os
+import json
 
 from rest_framework import status
 from rest_framework.viewsets import ViewSet
@@ -10,6 +11,8 @@ from pydantic import BaseModel
 from typing import List, Literal
 from pydantic_ai import Agent
 from pydantic_ai.settings import ModelSettings
+from google import genai
+from google.genai import types
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +56,157 @@ class DamageInspectionView(ViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
+    @action(detail=False, methods=['post'], url_path='damage_inspection_fast')
+    def damage_inspection_fast(self, request):
+        logger.info("Received damage inspection fast request")
+
+        if 'image' not in request.FILES:
+            logger.warning("No image provided in request")
+            return Response(
+                {'error': 'No image provided'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            image = request.FILES['image']
+            logger.info(f"Processing image (fast): {image.name}, size: {image.size} bytes")
+            image_bytes = image.read()
+
+            inspector_fast = DamageInspector(model_type='gemini', model_name='gemini-2.5-flash')
+            result = inspector_fast.analyze_image_sync(image_bytes)
+
+            logger.info(f"Analysis complete (fast), found {len(result['damage_areas'])} damage areas")
+            return Response({
+                'status': 'success',
+                'filename': image.name,
+                'size': image.size,
+                'damage_areas': result['damage_areas']
+            })
+
+        except Exception as e:
+            logger.error(f"Error processing image (fast): {str(e)}", exc_info=True)
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    @action(detail=False, methods=['post'], url_path='damage_inspection_v2')
+    def damage_inspection_v2(self, request):
+        logger.info("Received damage inspection v2 request")
+
+        if 'image' not in request.FILES:
+            logger.warning("No image provided in request")
+            return Response(
+                {'error': 'No image provided'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            image = request.FILES['image']
+            logger.info(f"Processing image (v2): {image.name}, size: {image.size} bytes")
+            image_bytes = image.read()
+
+            PROMPT_TEXT = """
+Role:
+You are an expert AI Vehicle Damage Assessor. Your task is to analyze images of vehicles to identify physical damage, localize it using bounding boxes, and classify it according to a strict taxonomy.
+Your analysis must be precise, damages must not be missed, even minor damages or uncertain damages should be reported. It is a lot better to thorough and over-report than under-report. Look for maximal number of possible damages and smallest possible boxes.
+Verify results carefully before outputting. All damage rectangles should belong to a car part, and not reside in empty space, pavement, etc.
+Objective:
+Analyze the provided image. For every distinct area of damage found:
+Identify:
+Determine the specific car part (using snake_case naming).
+Classify:
+Assign the correct Damage Code from the allowed list.
+Localize:
+Estimate a bounding box for the damage using normalized coordinates (0.0 to 1.0).
+Allowed Classification Schema (Damage Types) - Use ONLY these codes:
+Other
+Multiple Scratches
+Torn
+Stained
+Soiled
+Scratched
+Rusted
+Rubbed
+Paint
+Pitted
+Missing
+Loose
+Gouged
+Foreign
+Faded
+Dented
+Cracked
+Cut
+Broken
+Buffer
+Bent
+
+Add severity levels to the codes as follows:
+- MINOR
+- MEDIUM
+- SEVERE
+
+Add human readable location of the damage if possible: front_bumper, rear_bumper, left_headlight, etc.
+If not possible, use "unknown_location".
+
+Add text human readable description of the damage for each detected area.
+Output Format Rules:
+Output strictly valid JSON. Do not include markdown formatting (like ```json) or conversational text.
+Naming Convention: For the "name" field, use descriptive snake_case (e.g., front_left_door, rear_bumper, hood).
+Coordinates: The "rectangle" values must be normalized floats between 0.0 and 1.0 relative to the image width and height.
+x: 0.0 is the left edge, 1.0 is the right edge.
+y: 0.0 is the bottom edge, 1.0 is the top edge.
+JSON Structure:Use the following structure exactly:
+[{
+        "damage_type": "CODE",
+        "box_2d": [x1, y1, x2, y2],
+        "description": "Human readable description of the damage.",
+        "location": "CAR_PART",
+        "severity": "SEVERITY_LEVEL"
+}
+]
+"""
+
+            client = genai.Client(api_key=os.getenv('GOOGLE_API_KEY'))
+            MODEL_ID = "gemini-3-pro-preview"
+
+            response = client.models.generate_content(
+                model=MODEL_ID,
+                contents=[
+                    types.Content(
+                        role="user",
+                        parts=[
+                            types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg"),
+                            types.Part.from_text(text=PROMPT_TEXT),
+                        ],
+                    )
+                ],
+                config=types.GenerateContentConfig(
+                    thinking_config=types.ThinkingConfig(
+                        include_thoughts=False
+                    ),
+                    response_mime_type="application/json",
+                ),
+            )
+
+            json_output = json.loads(response.text)
+
+            logger.info(f"Analysis complete (v2), found {len(json_output)} damage areas")
+            return Response({
+                'status': 'success',
+                'filename': image.name,
+                'size': image.size,
+                'damage_areas': json_output
+            })
+
+        except Exception as e:
+            logger.error(f"Error processing image (v2): {str(e)}", exc_info=True)
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
 
 class Point(BaseModel):
     x: float
@@ -81,7 +235,8 @@ class DamageInspector:
         self,
         model_type: Literal['gemini', 'claude'] = 'gemini',
         google_api_key: str = None,
-        anthropic_api_key: str = None
+        anthropic_api_key: str = None,
+        model_name: str = None
     ):
         self.model_type = model_type
         self.google_api_key = google_api_key or os.getenv('GOOGLE_API_KEY')
@@ -128,7 +283,9 @@ Output Format Rules:
   - y: 0.0 is the bottom edge, 1.0 is the top edge.
 - Return a structured list of all detected damages with name, description, severity, damage_type, and rectangle fields."""
 
-        if self.model_type == 'gemini':
+        if model_name:
+            model_name = model_name
+        elif self.model_type == 'gemini':
             model_name = 'gemini-3-pro-preview'
         elif self.model_type == 'claude':
             model_name = 'claude-opus-4-5'
