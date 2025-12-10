@@ -153,25 +153,25 @@ Output Format Rules:
             logger.info(f"Extracted data: {data}")
 
             damage_areas = []
-            for detection in data:
-                logger.info(f"Processing detection: {detection}")
-                damage_areas.append({
-                    "name": detection.name,
-                    "damage_type": detection.damage_type,
-                    "rectangle": {
-                        "bottom_left": {
-                            "x": detection.rectangle.bottom_left.x,
-                            "y": detection.rectangle.bottom_left.y
-                        },
-                        "top_right": {
-                            "x": detection.rectangle.top_right.x,
-                            "y": detection.rectangle.top_right.y
-                        }
-                    }
-                })
+            # for detection in data:
+            #     logger.info(f"Processing detection: {detection}")
+            #     damage_areas.append({
+            #         "name": detection.name,
+            #         "damage_type": detection.damage_type,
+            #         "rectangle": {
+            #             "bottom_left": {
+            #                 "x": detection.rectangle.bottom_left.x,
+            #                 "y": detection.rectangle.bottom_left.y
+            #             },
+            #             "top_right": {
+            #                 "x": detection.rectangle.top_right.x,
+            #                 "y": detection.rectangle.top_right.y
+            #             }
+            #         }
+            #     })
 
             logger.info(f"Successfully processed {len(damage_areas)} damage areas")
-            return {"damage_areas": damage_areas}
+            return {"damage_areas": data}
 
         except Exception as e:
             logger.error(f"Error during image analysis: {str(e)}", exc_info=True)
