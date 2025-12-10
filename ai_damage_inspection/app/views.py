@@ -9,6 +9,7 @@ from rest_framework.decorators import action
 from pydantic import BaseModel
 from typing import List, Literal
 from pydantic_ai import Agent
+from pydantic_ai.settings import ModelSettings
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +66,8 @@ class Rectangle(BaseModel):
 
 class DamageDetection(BaseModel):
     name: str
+    description: str
+    severity: str
     damage_type: Literal[
         "O", "MS", "T", "ST", "SL", "S", "RU", "R", "PC", "P",
         "M", "L", "G", "FF", "F", "D", "CR", "C", "BR", "BB", "B"
@@ -88,6 +91,8 @@ class DamageInspector:
 
 Objective: Analyze the provided image. For every distinct area of damage found:
 - Identify: Determine the specific car part (using snake_case naming).
+- Describe: Provide a brief description of the damage (e.g., "Deep scratch along door panel", "Small dent on bumper").
+- Assess Severity: Rate the damage severity (e.g., "minor", "moderate", "severe", "critical").
 - Classify: Assign the correct Damage Code from the allowed list.
 - Localize: Estimate a bounding box for the damage using normalized coordinates (0.0 to 1.0).
 
@@ -116,10 +121,12 @@ Allowed Classification Schema (Damage Types): Use ONLY these codes:
 
 Output Format Rules:
 - Naming Convention: For the "name" field, use descriptive snake_case (e.g., front_left_door, rear_bumper, hood).
+- Description: Provide a clear, concise description of the damage. If uncertain, provide your best assessment.
+- Severity: Must be one of: "minor", "moderate", "severe", or "critical". If uncertain, provide your best estimate based on visible damage.
 - Coordinates: The "rectangle" values must be normalized floats between 0.0 and 1.0 relative to the image width and height.
   - x: 0.0 is the left edge, 1.0 is the right edge.
   - y: 0.0 is the bottom edge, 1.0 is the top edge.
-- Return a structured list of all detected damages with name, damage_type, and rectangle fields."""
+- Return a structured list of all detected damages with name, description, severity, damage_type, and rectangle fields."""
 
         if self.model_type == 'gemini':
             model_name = 'gemini-3-pro-preview'
@@ -131,7 +138,8 @@ Output Format Rules:
         self.agent = Agent(
             model_name,
             output_type=List[DamageDetection],
-            system_prompt=system_prompt
+            system_prompt=system_prompt,
+            model_settings=ModelSettings(temperature=1.0)
         )
 
     def analyze_image_sync(self, image_data: bytes) -> dict:
@@ -153,22 +161,24 @@ Output Format Rules:
             logger.info(f"Extracted data: {data}")
 
             damage_areas = []
-            # for detection in data:
-            #     logger.info(f"Processing detection: {detection}")
-            #     damage_areas.append({
-            #         "name": detection.name,
-            #         "damage_type": detection.damage_type,
-            #         "rectangle": {
-            #             "bottom_left": {
-            #                 "x": detection.rectangle.bottom_left.x,
-            #                 "y": detection.rectangle.bottom_left.y
-            #             },
-            #             "top_right": {
-            #                 "x": detection.rectangle.top_right.x,
-            #                 "y": detection.rectangle.top_right.y
-            #             }
-            #         }
-            #     })
+            for detection in data:
+                logger.info(f"Processing detection: {detection}")
+                damage_areas.append({
+                    "name": detection.name,
+                    "description": detection.description,
+                    "severity": detection.severity,
+                    "damage_type": detection.damage_type,
+                    "rectangle": {
+                        "bottom_left": {
+                            "x": detection.rectangle.bottom_left.x,
+                            "y": detection.rectangle.bottom_left.y
+                        },
+                        "top_right": {
+                            "x": detection.rectangle.top_right.x,
+                            "y": detection.rectangle.top_right.y
+                        }
+                    }
+                })
 
             logger.info(f"Successfully processed {len(damage_areas)} damage areas")
             return {"damage_areas": data}
