@@ -4,6 +4,6 @@ from rest_framework.decorators import action
 
 
 class DamageInspectionView(ViewSet):
-    @action(detail=False, methods=['post'])
+    @action(detail=False, methods=['post', 'get'])
     def damage_inspection(self, request):
         return Response({"message": "Damage inspection endpoint"})
