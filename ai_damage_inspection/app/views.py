@@ -181,7 +181,7 @@ Output Format Rules:
                 })
 
             logger.info(f"Successfully processed {len(damage_areas)} damage areas")
-            return {"damage_areas": data}
+            return {"damage_areas": damage_areas}
 
         except Exception as e:
             logger.error(f"Error during image analysis: {str(e)}", exc_info=True)
