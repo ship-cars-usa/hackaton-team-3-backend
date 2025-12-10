@@ -3,7 +3,6 @@ from rest_framework import status
 from rest_framework.viewsets import ViewSet
 from rest_framework.response import Response
 from rest_framework.decorators import action
-from damage_inspection import DamageInspector
 
 logger = logging.getLogger(__name__)
 
@@ -12,6 +11,7 @@ class DamageInspectionView(ViewSet):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         logger.info("Initializing DamageInspectionView with Gemini model")
+        from damage_inspection.inspector import DamageInspector
         self.inspector = DamageInspector(model_type='gemini')
 
     @action(detail=False, methods=['post'])
