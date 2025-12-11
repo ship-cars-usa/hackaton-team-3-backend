@@ -207,6 +207,100 @@ JSON Structure:Use the following structure exactly:
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
+    @action(detail=False, methods=['post'], url_path='damage_inspection_v3')
+    def damage_inspection_v3(self, request):
+        logger.info("Received damage inspection v3 request")
+
+        if 'image' not in request.FILES:
+            logger.warning("No image provided in request")
+            return Response(
+                {'error': 'No image provided'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            image = request.FILES['image']
+            logger.info(f"Processing image (v3): {image.name}, size: {image.size} bytes")
+            image_bytes = image.read()
+
+            PROMPT_TEXT = """
+### Task
+Find me the bounding boxes of all damages to the car in the image, classify the damage type, location and severity level.
+Return a bounding box for each damage using standard normalized coordinates (0 to 1000). Cracks, dents, bents, paint chips, scratches, etc all qualifies as damage.
+
+### Damage Type classification
+Allowed Classification Schema (Damage Types) - Use ONLY these codes:
+Torn
+Stained
+Scratched
+Rusted
+Paint
+Missing
+Dented
+Cracked
+Broken
+Bent
+
+### Location
+Human readable description of the car part - e.g. front bumper
+
+### Severity Level
+minor, medium, severe
+
+### Output Format Rules
+Output strictly valid JSON. Do not include markdown formatting (like ```json) or conversational text.
+Naming Convention: For the "name" field, use descriptive snake_case (e.g., front_left_door, rear_bumper, hood).
+JSON Structure:Use the following structure exactly:
+[{
+        "damage_type": "CODE",
+        "box_2d": [ymin, xmin, ymax, xmax],
+        "description": "Human readable description of the damage.",
+        "location": "CAR_PART",
+        "severity": "SEVERITY_LEVEL"
+}
+]
+"""
+
+            client = genai.Client(api_key=os.getenv('GOOGLE_API_KEY'))
+            MODEL_ID = "gemini-3-pro-preview"
+
+            response = client.models.generate_content(
+                model=MODEL_ID,
+                contents=[
+                    types.Content(
+                        role="user",
+                        parts=[
+                            types.Part.from_bytes(
+                                data=image_bytes,
+                                mime_type="image/jpeg",
+                            ),
+                            types.Part.from_text(text=PROMPT_TEXT),
+                        ],
+                    )
+                ],
+                config=types.GenerateContentConfig(
+                    thinking_config=types.ThinkingConfig(include_thoughts=False),
+                    response_mime_type="application/json",
+                ),
+            )
+
+            json_output = json.loads(response.text)
+
+            logger.info(f"Analysis complete (v3), found {len(json_output)} damage areas")
+            return Response({
+                'status': 'success',
+                'filename': image.name,
+                'size': image.size,
+                'damage_areas': json_output
+            })
+
+        except Exception as e:
+            logger.error(f"Error processing image (v3): {str(e)}", exc_info=True)
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
 
 class Point(BaseModel):
     x: float
